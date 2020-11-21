@@ -161,11 +161,11 @@ impl<R: BufRead> Deserializer<R> {
         Self::new(reader)
     }
 
-    fn peek(&mut self) -> Result<Option<&Event<'static>>, DeError> {
+    fn peek(&mut self) -> Result<&Event<'static>, DeError> {
         if self.peek.is_none() {
             self.peek = Some(self.next(&mut Vec::new())?);
         }
-        Ok(self.peek.as_ref())
+        Ok(self.peek.as_ref().unwrap())
     }
 
     fn next<'a>(&mut self, buf: &'a mut Vec<u8>) -> Result<Event<'static>, DeError> {
@@ -417,8 +417,8 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
 
     fn deserialize_option<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
         match self.peek()? {
-            Some(Event::Text(t)) if t.is_empty() => visitor.visit_none(),
-            None | Some(Event::Eof) => visitor.visit_none(),
+            Event::Text(t) if t.is_empty() => visitor.visit_none(),
+            Event::Eof => visitor.visit_none(),
             _ => visitor.visit_some(self),
         }
     }
@@ -437,7 +437,7 @@ impl<'de, 'a, R: BufRead> de::Deserializer<'de> for &'a mut Deserializer<R> {
     }
 
     fn deserialize_any<V: de::Visitor<'de>>(self, visitor: V) -> Result<V::Value, DeError> {
-        match self.peek()?.ok_or(DeError::Eof)? {
+        match self.peek()? {
             Event::Start(_) => self.deserialize_map(visitor),
             Event::End(_) => self.deserialize_unit(visitor),
             _ => self.deserialize_string(visitor),

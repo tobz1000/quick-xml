@@ -70,7 +70,7 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
         } else {
             // try getting from events (<key>value</key>)
             match self.de.peek()? {
-                Some(Event::Text(_)) => {
+                Event::Text(_) => {
                     self.value = MapValue::InnerValue;
                     seed.deserialize(INNER_VALUE.into_deserializer()).map(Some)
                 }
@@ -90,11 +90,11 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
                 // }
                 // TODO: This should be handled by #[serde(flatten)]
                 // See https://github.com/serde-rs/serde/issues/1905
-                Some(Event::Start(_)) if has_value_field => {
+                Event::Start(_) if has_value_field => {
                     self.value = MapValue::InnerValue;
                     seed.deserialize(INNER_VALUE.into_deserializer()).map(Some)
                 }
-                Some(Event::Start(e)) => {
+                Event::Start(e) => {
                     let name = e.local_name().to_owned();
                     self.value = MapValue::Nested;
                     seed.deserialize(EscapedDeserializer::new(name, decoder, false))

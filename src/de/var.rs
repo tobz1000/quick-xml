@@ -27,10 +27,9 @@ impl<'de, 'a, R: 'a + BufRead> de::EnumAccess<'de> for EnumAccess<'a, R> {
     ) -> Result<(V::Value, VariantAccess<'a, R>), DeError> {
         let decoder = self.de.reader.decoder();
         let de = match self.de.peek()? {
-            Some(Event::Text(t)) => EscapedDeserializer::new(t.to_vec(), decoder, true),
-            Some(Event::Start(e)) => EscapedDeserializer::new(e.name().to_vec(), decoder, false),
-            Some(e) => return Err(DeError::InvalidEnum(e.to_owned())),
-            None => return Err(DeError::Eof),
+            Event::Text(t) => EscapedDeserializer::new(t.to_vec(), decoder, true),
+            Event::Start(e) => EscapedDeserializer::new(e.name().to_vec(), decoder, false),
+            e => return Err(DeError::InvalidEnum(e.to_owned())),
         };
         let name = seed.deserialize(de)?;
         Ok((name, VariantAccess { de: self.de }))

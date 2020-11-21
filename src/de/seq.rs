@@ -40,7 +40,7 @@ impl<'a, R: BufRead> SeqAccess<'a, R> {
         let names = if de.has_value_field {
             Names::Unknown
         } else {
-            if let Some(Event::Start(e)) = de.peek()? {
+            if let Event::Start(e) = de.peek()? {
                 #[cfg(not(feature = "encoding"))]
                 let name = decoder.decode(e.name())?.to_owned();
                 #[cfg(feature = "encoding")]
@@ -77,8 +77,8 @@ impl<'de, 'a, R: 'a + BufRead> de::SeqAccess<'de> for SeqAccess<'a, R> {
         }
         let decoder = self.de.reader.decoder();
         match self.de.peek()? {
-            None | Some(Event::Eof) | Some(Event::End(_)) => Ok(None),
-            Some(Event::Start(e)) if !self.names.is_valid(decoder, e)? => Ok(None),
+            Event::Eof | Event::End(_) => Ok(None),
+            Event::Start(e) if !self.names.is_valid(decoder, e)? => Ok(None),
             _ => seed.deserialize(&mut *self.de).map(Some),
         }
     }
