@@ -1,5 +1,5 @@
 use crate::{
-    de::{escape::EscapedDeserializer, Deserializer},
+    de::{de_reader::DeserializerReader, escape::EscapedDeserializer, Deserializer},
     errors::serialize::DeError,
     events::Event,
 };
@@ -7,25 +7,27 @@ use serde::de::{self, Deserializer as SerdeDeserializer};
 use std::io::BufRead;
 
 /// An enum access
-pub struct EnumAccess<'a, R: BufRead> {
-    de: &'a mut Deserializer<R>,
+pub struct EnumAccess<'a, R: BufRead, D: DeserializerReader<R>> {
+    de: &'a mut Deserializer<R, D>,
 }
 
-impl<'a, R: BufRead> EnumAccess<'a, R> {
-    pub fn new(de: &'a mut Deserializer<R>) -> Self {
+impl<'a, R: BufRead, D: DeserializerReader<R>> EnumAccess<'a, R, D> {
+    pub fn new(de: &'a mut Deserializer<R, D>) -> Self {
         EnumAccess { de }
     }
 }
 
-impl<'de, 'a, R: 'a + BufRead> de::EnumAccess<'de> for EnumAccess<'a, R> {
+impl<'de, 'a, R: 'a + BufRead, D: DeserializerReader<R>> de::EnumAccess<'de>
+    for EnumAccess<'a, R, D>
+{
     type Error = DeError;
-    type Variant = VariantAccess<'a, R>;
+    type Variant = VariantAccess<'a, R, D>;
 
     fn variant_seed<V: de::DeserializeSeed<'de>>(
         self,
         seed: V,
-    ) -> Result<(V::Value, VariantAccess<'a, R>), DeError> {
-        let decoder = self.de.reader.decoder();
+    ) -> Result<(V::Value, VariantAccess<'a, R, D>), DeError> {
+        let decoder = self.de.de_reader.reader().decoder();
         let de = match self.de.peek()? {
             Event::Text(t) => EscapedDeserializer::new(t.to_vec(), decoder, true),
             Event::Start(e) => EscapedDeserializer::new(e.name().to_vec(), decoder, false),
@@ -36,11 +38,13 @@ impl<'de, 'a, R: 'a + BufRead> de::EnumAccess<'de> for EnumAccess<'a, R> {
     }
 }
 
-pub struct VariantAccess<'a, R: BufRead> {
-    de: &'a mut Deserializer<R>,
+pub struct VariantAccess<'a, R: BufRead, D: DeserializerReader<R>> {
+    de: &'a mut Deserializer<R, D>,
 }
 
-impl<'de, 'a, R: BufRead> de::VariantAccess<'de> for VariantAccess<'a, R> {
+impl<'de, 'a, R: BufRead, D: DeserializerReader<R>> de::VariantAccess<'de>
+    for VariantAccess<'a, R, D>
+{
     type Error = DeError;
 
     fn unit_variant(self) -> Result<(), DeError> {

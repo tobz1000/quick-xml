@@ -1,7 +1,7 @@
 //! Serde `Deserializer` module
 
 use crate::{
-    de::{escape::EscapedDeserializer, Deserializer, INNER_VALUE},
+    de::{de_reader::DeserializerReader, escape::EscapedDeserializer, Deserializer, INNER_VALUE},
     errors::serialize::DeError,
     events::{attributes::Attribute, BytesStart, Event},
 };
@@ -16,10 +16,10 @@ enum MapValue {
 }
 
 /// A deserializer for `Attributes`
-pub(crate) struct MapAccess<'a, R: BufRead> {
+pub(crate) struct MapAccess<'a, R: BufRead, D: DeserializerReader<R>> {
     /// Tag -- owner of attributes
     start: BytesStart<'static>,
-    de: &'a mut Deserializer<R>,
+    de: &'a mut Deserializer<R, D>,
     /// Position in flat byte slice of all attributes from which next
     /// attribute should be parsed. This field is required because we
     /// do not store reference to `Attributes` itself but instead create
@@ -29,9 +29,12 @@ pub(crate) struct MapAccess<'a, R: BufRead> {
     value: MapValue,
 }
 
-impl<'a, R: BufRead> MapAccess<'a, R> {
+impl<'a, R: BufRead, D: DeserializerReader<R>> MapAccess<'a, R, D> {
     /// Create a new MapAccess
-    pub fn new(de: &'a mut Deserializer<R>, start: BytesStart<'static>) -> Result<Self, DeError> {
+    pub fn new(
+        de: &'a mut Deserializer<R, D>,
+        start: BytesStart<'static>,
+    ) -> Result<Self, DeError> {
         let position = start.attributes().position;
         Ok(MapAccess {
             de,
@@ -50,7 +53,7 @@ impl<'a, R: BufRead> MapAccess<'a, R> {
     }
 }
 
-impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
+impl<'a, 'de, R: BufRead, D: DeserializerReader<R>> de::MapAccess<'de> for MapAccess<'a, R, D> {
     type Error = DeError;
 
     fn next_key_seed<K: DeserializeSeed<'de>>(
@@ -60,7 +63,7 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
         let attr_key_val = self
             .next_attr()?
             .map(|a| (a.key.to_owned(), a.value.into_owned()));
-        let decoder = self.de.reader.decoder();
+        let decoder = self.de.de_reader.reader().decoder();
         let has_value_field = self.de.has_value_field;
         if let Some((key, value)) = attr_key_val {
             // try getting map from attributes (key= "value")
@@ -112,7 +115,7 @@ impl<'a, 'de, R: BufRead> de::MapAccess<'de> for MapAccess<'a, R> {
         match std::mem::replace(&mut self.value, MapValue::Empty) {
             MapValue::Attribute { value } => seed.deserialize(EscapedDeserializer::new(
                 value,
-                self.de.reader.decoder(),
+                self.de.de_reader.reader().decoder(),
                 true,
             )),
             MapValue::Nested | MapValue::InnerValue => seed.deserialize(&mut *self.de),

@@ -1,8 +1,5 @@
-use crate::de::{DeError, Deserializer};
-use crate::{
-    events::{BytesStart, Event},
-    reader::Decoder,
-};
+use crate::de::{de_reader::DeserializerReader, ChildDeserializer, DeError};
+use crate::events::Event;
 use serde::de;
 use std::io::BufRead;
 
@@ -12,31 +9,17 @@ enum Names {
     Peek(String),
 }
 
-impl Names {
-    fn is_valid(&self, decoder: Decoder, start: &BytesStart) -> Result<bool, DeError> {
-        #[cfg(not(feature = "encoding"))]
-        let name = decoder.decode(start.name())?;
-        #[cfg(feature = "encoding")]
-        let name = decoder.decode(start.name());
-        let res = match self {
-            Names::Unknown => true,
-            Names::Peek(n) => &**n == &*name,
-        };
-        Ok(res)
-    }
-}
-
 /// A SeqAccess
 pub struct SeqAccess<'a, R: BufRead> {
-    de: &'a mut Deserializer<R>,
+    de: ChildDeserializer<'a, R>,
     max_size: Option<usize>,
     names: Names,
 }
 
 impl<'a, R: BufRead> SeqAccess<'a, R> {
     /// Get a new SeqAccess
-    pub fn new(de: &'a mut Deserializer<R>, max_size: Option<usize>) -> Result<Self, DeError> {
-        let decoder = de.reader.decoder();
+    pub fn new(mut de: ChildDeserializer<'a, R>, max_size: Option<usize>) -> Result<Self, DeError> {
+        let decoder = de.de_reader.reader().decoder();
         let names = if de.has_value_field {
             Names::Unknown
         } else {
@@ -75,11 +58,55 @@ impl<'de, 'a, R: 'a + BufRead> de::SeqAccess<'de> for SeqAccess<'a, R> {
             }
             *s -= 1;
         }
-        let decoder = self.de.reader.decoder();
-        match self.de.peek()? {
-            Event::Eof | Event::End(_) => Ok(None),
-            Event::Start(e) if !self.names.is_valid(decoder, e)? => Ok(None),
-            _ => seed.deserialize(&mut *self.de).map(Some),
+        let decoder = self.de.de_reader.reader().decoder();
+        match &self.names {
+            Names::Peek(expected_name) => {
+                let mut local_depth = 0;
+                loop {
+                    let next_element = self.de.peek()?;
+                    match next_element {
+                        Event::Start(start) => {
+                            #[cfg(not(feature = "encoding"))]
+                            let name = decoder.decode(start.name())?;
+                            #[cfg(feature = "encoding")]
+                            let name = decoder.decode(start.name());
+
+                            if name == expected_name && local_depth == 0 {
+                                return seed.deserialize(&mut self.de).map(Some);
+                            } else {
+                                local_depth += 1;
+                                self.de.de_reader.skip();
+                            }
+                        }
+                        Event::End(_) => {
+                            if local_depth == 0 {
+                                return Ok(None);
+                            } else {
+                                local_depth -= 1;
+                                self.de.de_reader.skip();
+                            }
+                        }
+                        Event::Eof => {
+                            return Ok(None);
+                        }
+                        _ => {
+                            self.de.de_reader.skip();
+                        }
+                    }
+                }
+            }
+            Names::Unknown => {
+                let next_element = self.de.peek()?;
+
+                match next_element {
+                    Event::Eof | Event::End(_) => {
+                        return Ok(None);
+                    }
+                    _ => {
+                        return seed.deserialize(&mut self.de).map(Some);
+                    }
+                }
+            }
         }
     }
 }
